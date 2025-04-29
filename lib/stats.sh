@@ -107,7 +107,13 @@ show_log_stats() {
     # Show error message patterns specifically
     if [[ $total_entries -gt 0 ]]; then
         echo -e "\n${BOLD}${RED}Error Patterns:${NC}"
-        eval "$base_cmd --priority=emerg,alert,crit,err --no-pager | grep -v '^--' | sed 's/^[A-Za-z]\{3\} [0-9]\{2\} [0-9]\{2\}:[0-9]\{2\}:[0-9]\{2\} [^ ]* //' | sort | uniq -c | sort -nr | head -n 5" | 
+        # Fix: Use separate calls for each priority level and combine the results
+        {
+            eval "$base_cmd --priority=0 --no-pager"
+            eval "$base_cmd --priority=1 --no-pager"
+            eval "$base_cmd --priority=2 --no-pager"
+            eval "$base_cmd --priority=3 --no-pager"
+        } | grep -v '^--' | sed 's/^[A-Za-z]\{3\} [0-9]\{2\} [0-9]\{2\}:[0-9]\{2\}:[0-9]\{2\} [^ ]* //' | sort | uniq -c | sort -nr | head -n 5 | 
             awk '{printf "  %4d occurrences: \033[31m%s\033[0m\n", $1, substr($0, length($1)+1)}'
         
         # Show log spikes (unusual activity)
@@ -306,8 +312,9 @@ show_system_stats() {
     local errors_summary=""
     
     # Count system errors in the last hour
-    local system_errors=$(journalctl --priority=emerg,alert,crit,err --since="1 hour ago" | wc -l)
-    local system_warnings=$(journalctl --priority=warning --since="1 hour ago" | wc -l)
+    # Fix: Using priority ranges for critical logs (0-3)
+    local system_errors=$(journalctl --priority=0..3 --since="1 hour ago" | wc -l)
+    local system_warnings=$(journalctl --priority=4 --since="1 hour ago" | wc -l)
     
     echo -e "  Last hour: ${RED}$system_errors${NC} errors, ${YELLOW}$system_warnings${NC} warnings"
     
@@ -322,19 +329,23 @@ show_system_stats() {
         case "$category" in
             "system")
                 # System services (systemd, udev, etc.)
-                count=$(journalctl -u systemd -u udev -u dbus -u polkit --priority=emerg,alert,crit,err --since="24 hours ago" | wc -l)
+                # Fix: Using priority ranges for critical logs (0-3)
+                count=$(journalctl -u systemd -u udev -u dbus -u polkit --priority=0..3 --since="24 hours ago" | wc -l)
                 ;;
             "network")
                 # Network services
-                count=$(journalctl -u NetworkManager -u systemd-networkd -u ssh -u networking --priority=emerg,alert,crit,err --since="24 hours ago" | wc -l)
+                # Fix: Using priority ranges for critical logs (0-3)
+                count=$(journalctl -u NetworkManager -u systemd-networkd -u ssh -u networking --priority=0..3 --since="24 hours ago" | wc -l)
                 ;;
             "kernel")
                 # Kernel messages
-                count=$(journalctl --dmesg --priority=emerg,alert,crit,err --since="24 hours ago" | wc -l)
+                # Fix: Using priority ranges for critical logs (0-3)
+                count=$(journalctl --dmesg --priority=0..3 --since="24 hours ago" | wc -l)
                 ;;
             "security")
                 # Security-related logs
-                count=$(journalctl -u apparmor -u audit -u sshd -u sudo --priority=emerg,alert,crit,err --since="24 hours ago" | wc -l)
+                # Fix: Using priority ranges for critical logs (0-3)
+                count=$(journalctl -u apparmor -u audit -u sshd -u sudo --priority=0..3 --since="24 hours ago" | wc -l)
                 ;;
             "hardware")
                 # Hardware-related logs
@@ -342,7 +353,8 @@ show_system_stats() {
                 ;;
             "application")
                 # Application logs
-                count=$(journalctl -u apache2 -u nginx -u mysql -u docker -u snap -u flatpak --priority=emerg,alert,crit,err --since="24 hours ago" | wc -l)
+                # Fix: Using priority ranges for critical logs (0-3)
+                count=$(journalctl -u apache2 -u nginx -u mysql -u docker -u snap -u flatpak --priority=0..3 --since="24 hours ago" | wc -l)
                 ;;
         esac
         
@@ -405,7 +417,8 @@ show_attention_areas() {
     echo -e "${BOLD}Services with High Error Rates:${NC}"
     
     # Get top services by error count
-    local error_prone_services=$(journalctl --priority=emerg,alert,crit,err --since="$time_filter" --output=json | 
+    # Fix: Using priority ranges for critical logs (0-3)
+    local error_prone_services=$(journalctl --priority=0..3 --since="$time_filter" --output=json | 
         jq -r '.SYSLOG_IDENTIFIER // ._COMM // "unknown"' 2>/dev/null | 
         sort | uniq -c | sort -nr | head -n 10)
     
@@ -433,7 +446,7 @@ show_attention_areas() {
                 } else if ($1 > 20) {
                     severity = "error";
                 }
-                print "application:" severity ":" $2 " errors|" $1 "|journalctl _COMM=" $2 " --priority=emerg,alert,crit,err"
+                print "application:" severity ":" $2 " errors|" $1 "|journalctl _COMM=" $2 " --priority=0..3"
             }' >> "$temp_file"
     else
         echo -e "  ${GREEN}No significant error rates found${NC}"
@@ -658,7 +671,8 @@ show_top_issues() {
     echo -e "${CYAN}Collecting error logs...${NC}"
     
     # Build the journalctl base command
-    local base_cmd="journalctl --priority=emerg,alert,crit,err --since=\"$time_filter\" --output=json"
+    # Fix: Using priority ranges for critical logs (0-3)
+    local base_cmd="journalctl --priority=0..3 --since=\"$time_filter\" --output=json"
     
     # Add category filter if specified
     if [[ -n "$category_filter" ]]; then
@@ -752,7 +766,7 @@ show_top_issues() {
             echo -e "  ${YELLOW}${service}${NC}:"
             
             # Look in journald
-            echo -e "    • Journald: ${GRAY}journalctl _COMM=\"$service\" --priority=err${NC}"
+            echo -e "    • Journald: ${GRAY}journalctl _COMM=\"$service\" --priority=0..3${NC}"
             
             # Check for log files in various locations
             local log_files=""
@@ -816,10 +830,11 @@ show_trends() {
     
     for date in "${dates[@]}"; do
         # Get error counts for each priority
-        local critical=$(journalctl --since="$date 00:00:00" --until="$date 23:59:59" --priority=emerg,alert,crit | wc -l)
-        local error=$(journalctl --since="$date 00:00:00" --until="$date 23:59:59" --priority=err | wc -l)
-        local warning=$(journalctl --since="$date 00:00:00" --until="$date 23:59:59" --priority=warning | wc -l)
-        local info=$(journalctl --since="$date 00:00:00" --until="$date 23:59:59" --priority=info | wc -l)
+        # Fix: Using priority ranges for critical logs (0-2 for critical, 3 for error, 4 for warning)
+        local critical=$(journalctl --since="$date 00:00:00" --until="$date 23:59:59" --priority=0..2 | wc -l)
+        local error=$(journalctl --since="$date 00:00:00" --until="$date 23:59:59" --priority=3 | wc -l)
+        local warning=$(journalctl --since="$date 00:00:00" --until="$date 23:59:59" --priority=4 | wc -l)
+        local info=$(journalctl --since="$date 00:00:00" --until="$date 23:59:59" --priority=6 | wc -l)
         
         # Store data for later ASCII visualization
         echo "$date $critical $error $warning $info" >> "$temp_file"
@@ -901,7 +916,8 @@ show_trends() {
     # Show most affected services over the time period
     echo -e "\n${BOLD}Most Affected Services:${NC}"
     
-    journalctl --priority=emerg,alert,crit,err --since="$days days ago" --output=json | 
+    # Fix: Using priority ranges for critical logs (0-3)
+    journalctl --priority=0..3 --since="$days days ago" --output=json | 
         jq -r '.SYSLOG_IDENTIFIER // ._COMM // "unknown"' 2>/dev/null | 
         sort | uniq -c | sort -nr | head -n 5 | 
         awk '{
@@ -983,7 +999,8 @@ generate_health_report() {
     echo
     
     echo "Top Error Sources:"
-    journalctl --priority=emerg,alert,crit,err --since="24 hours ago" --output=json | 
+    # Fix: Using priority ranges for critical logs (0-3)
+    journalctl --priority=0..3 --since="24 hours ago" --output=json | 
         jq -r '.SYSLOG_IDENTIFIER // ._COMM // "unknown"' 2>/dev/null | 
         sort | uniq -c | sort -nr | head -n 10 | 
         awk '{printf "  %4d errors from %s\n", $1, substr($0, length($1) + 2)}'
@@ -1038,7 +1055,8 @@ generate_health_report() {
     fi
     
     # Check for high error rates
-    if [[ $(journalctl --priority=emerg,alert,crit,err --since="24 hours ago" | wc -l) -gt 50 ]]; then
+    # Fix: Using priority ranges for critical logs (0-3)
+    if [[ $(journalctl --priority=0..3 --since="24 hours ago" | wc -l) -gt 50 ]]; then
         echo "  • Investigate high error rates in logs"
         recs=$((recs+1))
     fi

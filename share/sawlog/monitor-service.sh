@@ -227,14 +227,14 @@ collect_system_stats() {
         error_count=0
         warning_count=0
         
-        # Count entries for critical priorities
-        critical_count=$(eval "$cmd --priority=emerg,alert,crit" | wc -l)
+        # Count entries for critical priorities - Fix: use priority ranges instead of comma-separated lists
+        critical_count=$(eval "$cmd --priority=0..2" | wc -l)
         
         # Count entries for error priority
-        error_count=$(eval "$cmd --priority=err" | wc -l)
+        error_count=$(eval "$cmd --priority=3" | wc -l)
         
         # Count entries for warning priority
-        warning_count=$(eval "$cmd --priority=warning" | wc -l)
+        warning_count=$(eval "$cmd --priority=4" | wc -l)
         
         # Get total entries
         total_count=$(eval "$cmd" | wc -l)

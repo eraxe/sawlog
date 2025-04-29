@@ -123,9 +123,101 @@ EOF
         echo "export PATH=\"\$PATH:$INSTALL_DIR\""
     fi
     
+    # Update and reload systemd services if they exist
+    update_systemd_services
+    
     echo -e "${GREEN}${TOOL_NAME} has been installed successfully!${NC}"
     echo -e "Run '${CYAN}${TOOL_NAME} --help${NC}' for usage information."
     echo -e "To set up the monitoring service, run '${CYAN}${TOOL_NAME} --setup-monitor${NC}'."
+}
+
+# Update and reload systemd services
+update_systemd_services() {
+    local service_updated=false
+    
+    # Check if system service exists and update it
+    if [[ -f "$SERVICE_FILE" ]]; then
+        echo -e "${CYAN}Updating system service file...${NC}"
+        cat > /tmp/sawlog-monitor.service << EOF
+[Unit]
+Description=Sawlog Log Monitoring Service
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=${MONITOR_SCRIPT}
+Restart=on-failure
+RestartSec=10
+User=$(whoami)
+Group=$(id -gn)
+
+[Install]
+WantedBy=multi-user.target
+EOF
+        
+        # Check if there are differences
+        if ! diff -q /tmp/sawlog-monitor.service "$SERVICE_FILE" &>/dev/null; then
+            sudo mv /tmp/sawlog-monitor.service "$SERVICE_FILE"
+            service_updated=true
+            echo -e "${GREEN}System service file updated.${NC}"
+        else
+            rm /tmp/sawlog-monitor.service
+        fi
+        
+        # Reload and restart the service if it's active
+        if [[ "$service_updated" == "true" || -n "$1" ]]; then
+            echo -e "${CYAN}Reloading systemd daemon...${NC}"
+            sudo systemctl daemon-reload
+            
+            if systemctl is-active --quiet sawlog-monitor.service; then
+                echo -e "${CYAN}Restarting system monitoring service...${NC}"
+                sudo systemctl restart sawlog-monitor.service
+                echo -e "${GREEN}System monitoring service restarted.${NC}"
+            fi
+        fi
+    fi
+    
+    # Check if user service exists and update it
+    if [[ -f "$USER_SERVICE_FILE" ]]; then
+        echo -e "${CYAN}Updating user service file...${NC}"
+        
+        mkdir -p "$(dirname "$USER_SERVICE_FILE")"
+        cat > /tmp/sawlog-monitor-user.service << EOF
+[Unit]
+Description=Sawlog Log Monitoring Service (User)
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=${MONITOR_SCRIPT}
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target
+EOF
+        
+        # Check if there are differences
+        if ! diff -q /tmp/sawlog-monitor-user.service "$USER_SERVICE_FILE" &>/dev/null; then
+            mv /tmp/sawlog-monitor-user.service "$USER_SERVICE_FILE"
+            service_updated=true
+            echo -e "${GREEN}User service file updated.${NC}"
+        else
+            rm /tmp/sawlog-monitor-user.service
+        fi
+        
+        # Reload and restart the service if it's active
+        if [[ "$service_updated" == "true" || -n "$1" ]]; then
+            echo -e "${CYAN}Reloading user systemd daemon...${NC}"
+            systemctl --user daemon-reload
+            
+            if systemctl --user is-active --quiet sawlog-monitor.service; then
+                echo -e "${CYAN}Restarting user monitoring service...${NC}"
+                systemctl --user restart sawlog-monitor.service
+                echo -e "${GREEN}User monitoring service restarted.${NC}"
+            fi
+        fi
+    fi
 }
 
 # Install bash completion
@@ -174,10 +266,44 @@ install_zsh_completion() {
 uninstall_tool() {
     echo -e "${BLUE}Uninstalling ${TOOL_NAME}...${NC}"
     
+    # Stop and disable the monitoring service if it exists
+    if systemctl is-active --quiet sawlog-monitor.service 2>/dev/null; then
+        echo -e "${CYAN}Stopping system monitoring service...${NC}"
+        sudo systemctl stop sawlog-monitor.service
+        sudo systemctl disable sawlog-monitor.service
+        echo -e "${GREEN}Stopped and disabled system monitoring service${NC}"
+    fi
+    
+    if systemctl --user is-active --quiet sawlog-monitor.service 2>/dev/null; then
+        echo -e "${CYAN}Stopping user monitoring service...${NC}"
+        systemctl --user stop sawlog-monitor.service
+        systemctl --user disable sawlog-monitor.service
+        echo -e "${GREEN}Stopped and disabled user monitoring service${NC}"
+    fi
+    
+    # Remove service files
+    if [[ -f "$SERVICE_FILE" ]]; then
+        sudo rm "$SERVICE_FILE"
+        sudo systemctl daemon-reload
+        echo -e "${GREEN}Removed system service file${NC}"
+    fi
+    
+    if [[ -f "$USER_SERVICE_FILE" ]]; then
+        rm "$USER_SERVICE_FILE"
+        systemctl --user daemon-reload
+        echo -e "${GREEN}Removed user service file${NC}"
+    fi
+    
     # Remove the executable
     if [[ -f "$INSTALL_DIR/$TOOL_NAME" ]]; then
         rm "$INSTALL_DIR/$TOOL_NAME"
         echo -e "${GREEN}Removed $INSTALL_DIR/$TOOL_NAME${NC}"
+    fi
+    
+    # Remove the monitor script
+    if [[ -f "$MONITOR_SCRIPT" ]]; then
+        rm "$MONITOR_SCRIPT"
+        echo -e "${GREEN}Removed $MONITOR_SCRIPT${NC}"
     fi
     
     # Remove lib files
@@ -190,36 +316,6 @@ uninstall_tool() {
     if [[ -d "${HOME}/.local/share/sawlog" ]]; then
         rm -rf "${HOME}/.local/share/sawlog"
         echo -e "${GREEN}Removed shared files${NC}"
-    fi
-    
-    # Remove the monitor script
-    if [[ -f "$MONITOR_SCRIPT" ]]; then
-        rm "$MONITOR_SCRIPT"
-        echo -e "${GREEN}Removed $MONITOR_SCRIPT${NC}"
-    fi
-    
-    # Stop and disable the monitoring service if it exists
-    if systemctl is-active --quiet sawlog-monitor.service 2>/dev/null; then
-        sudo systemctl stop sawlog-monitor.service
-        sudo systemctl disable sawlog-monitor.service
-        echo -e "${GREEN}Stopped and disabled system monitoring service${NC}"
-    fi
-    
-    if systemctl --user is-active --quiet sawlog-monitor.service 2>/dev/null; then
-        systemctl --user stop sawlog-monitor.service
-        systemctl --user disable sawlog-monitor.service
-        echo -e "${GREEN}Stopped and disabled user monitoring service${NC}"
-    fi
-    
-    # Remove service files
-    if [[ -f "$SERVICE_FILE" ]]; then
-        sudo rm "$SERVICE_FILE"
-        echo -e "${GREEN}Removed system service file${NC}"
-    fi
-    
-    if [[ -f "$USER_SERVICE_FILE" ]]; then
-        rm "$USER_SERVICE_FILE"
-        echo -e "${GREEN}Removed user service file${NC}"
     fi
     
     # Ask if the user wants to keep configuration
