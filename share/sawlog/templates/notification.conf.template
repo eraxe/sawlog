@@ -1,0 +1,39 @@
+# sawlog notification configuration
+# This file configures how notifications are delivered
+
+# Enable/disable notifications
+ENABLE_NOTIFICATIONS=true
+
+# Notification methods
+USE_DESKTOP_NOTIFICATIONS=true    # Use desktop notifications
+USE_EMAIL_NOTIFICATIONS=false     # Send email notifications
+USE_LOG_FILE=true                 # Log notifications to file
+
+# Desktop notification settings
+NOTIFICATION_TIMEOUT=10000        # Timeout in milliseconds (10 seconds)
+NOTIFICATION_URGENCY_CRITICAL="critical"
+NOTIFICATION_URGENCY_ERROR="normal"
+NOTIFICATION_URGENCY_WARNING="low"
+
+# Email notification settings
+EMAIL_RECIPIENT=""
+EMAIL_FROM="sawlog@$(hostname)"
+EMAIL_SUBJECT_PREFIX="[SAWLOG]"
+SMTP_SERVER=""
+SMTP_PORT=25
+SMTP_USER=""
+SMTP_PASSWORD=""
+
+# Log file settings
+NOTIFICATION_LOG="${HOME}/.config/sawlog/notifications.log"
+
+# Rate limiting to avoid notification storms
+RATE_LIMIT_PERIOD=300             # Period in seconds (5 minutes)
+MAX_NOTIFICATIONS_PER_PERIOD=5    # Maximum notifications per period
+RATE_LIMIT_SIMILAR=true           # Rate limit similar notifications
+SIMILAR_NOTIFICATION_TIMEOUT=1800 # 30 minutes between similar notifications
+
+# Do not disturb settings
+DO_NOT_DISTURB=false              # Enable/disable do not disturb mode
+DND_START_TIME="23:00"            # Do not disturb start time
+DND_END_TIME="07:00"              # Do not disturb end time

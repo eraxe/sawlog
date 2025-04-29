@@ -1,0 +1,493 @@
+#!/bin/bash
+# sawlog - Advanced journalctl log viewer and extractor
+# Version: 2.0
+
+# Determine sawlog base directories
+if [[ -L "$0" ]]; then
+    # Follow symlink to actual location
+    SCRIPT_PATH=$(readlink -f "$0")
+    SCRIPT_DIR=$(dirname "$SCRIPT_PATH")
+else
+    SCRIPT_PATH="$0"
+    SCRIPT_DIR=$(dirname "$SCRIPT_PATH")
+fi
+
+# Determine the base directory
+# If installed in ~/.local/bin, library files will be in ~/.local/lib/sawlog
+# Otherwise, assume we're running from the source directory
+if [[ "$SCRIPT_DIR" == "$HOME/.local/bin" ]]; then
+    LIB_DIR="${HOME}/.local/lib/sawlog"
+    SHARE_DIR="${HOME}/.local/share/sawlog"
+else
+    # Running from source - one level up from bin/
+    BASE_DIR=$(dirname "$SCRIPT_DIR")
+    LIB_DIR="${BASE_DIR}/lib"
+    SHARE_DIR="${BASE_DIR}/share/sawlog"
+fi
+
+# Source library files
+source "${LIB_DIR}/core.sh"
+source "${LIB_DIR}/utils.sh"
+source "${LIB_DIR}/install.sh"
+source "${LIB_DIR}/services.sh"
+source "${LIB_DIR}/logging.sh"
+source "${LIB_DIR}/bookmarks.sh"
+source "${LIB_DIR}/stats.sh"
+source "${LIB_DIR}/monitor.sh"
+source "${LIB_DIR}/notifications.sh"
+
+# Default settings
+lines=50
+output_file=""
+to_clipboard=""
+scope="both"
+service_pattern=""
+time_filter=""
+until_filter=""
+priority_filter=""
+grep_pattern=""
+highlight_pattern=""
+output_format=""
+follow_mode=""
+reverse_order=""
+export_format=""
+kernel_only=""
+show_all=""
+expand_output=""
+show_status=""
+multi_services=""
+show_stats=""
+system_stats=""
+attention_areas=""
+top_issues=""
+num_issues=10
+health_report=""
+trend_days=7
+category_filter=""
+bookmark_name=""
+
+# If no arguments provided, show help
+if [[ $# -eq 0 ]]; then
+    show_help
+    exit 0
+fi
+
+# Parse all arguments
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -h|--help)
+            show_help
+            exit 0
+            ;;
+        -i|--install)
+            install_tool
+            exit $?
+            ;;
+        -u|--uninstall)
+            uninstall_tool
+            exit 0
+            ;;
+        -v|--version)
+            print_version
+            exit 0
+            ;;
+        --refresh)
+            update_service_cache
+            exit 0
+            ;;
+        -n|--lines)
+            if [[ -n "$2" && "$2" =~ ^[0-9]+$ ]]; then
+                lines="$2"
+                shift
+            else
+                echo -e "${RED}Error: --lines requires a number.${NC}"
+                exit 1
+            fi
+            ;;
+        -F|--file)
+            if [[ -n "$2" ]]; then
+                output_file="$2"
+                shift
+            else
+                echo -e "${RED}Error: --file requires a filename.${NC}"
+                exit 1
+            fi
+            ;;
+        -c|--clipboard)
+            if [[ -z "$CLIPBOARD_TOOL" ]]; then
+                echo -e "${RED}Error: No clipboard tool found. Please install xclip, wl-copy, or pbcopy.${NC}"
+                exit 1
+            fi
+            to_clipboard="yes"
+            ;;
+        -s|--system)
+            scope="system"
+            ;;
+        -U|--user)
+            scope="user"
+            ;;
+        -l|--list)
+            list_services "$scope"
+            exit 0
+            ;;
+        -j|--json)
+            output_format="json"
+            ;;
+        -t|--time)
+            if [[ -n "$2" ]]; then
+                time_filter="$2"
+                shift
+            else
+                echo -e "${RED}Error: --time requires a time string.${NC}"
+                exit 1
+            fi
+            ;;
+        -T|--until)
+            if [[ -n "$2" ]]; then
+                until_filter="$2"
+                shift
+            else
+                echo -e "${RED}Error: --until requires a time string.${NC}"
+                exit 1
+            fi
+            ;;
+        --today)
+            time_filter="today"
+            ;;
+        --yesterday)
+            time_filter="yesterday"
+            ;;
+        -p|--priority)
+            if [[ -n "$2" ]]; then
+                priority_filter="$2"
+                shift
+            else
+                echo -e "${RED}Error: --priority requires a level (emerg,alert,crit,err,warning,notice,info,debug).${NC}"
+                exit 1
+            fi
+            ;;
+        -g|--grep)
+            if [[ -n "$2" ]]; then
+                grep_pattern="$2"
+                shift
+            else
+                echo -e "${RED}Error: --grep requires a pattern.${NC}"
+                exit 1
+            fi
+            ;;
+        -H|--highlight)
+            if [[ -n "$2" ]]; then
+                highlight_pattern="$2"
+                shift
+            else
+                echo -e "${RED}Error: --highlight requires a pattern.${NC}"
+                exit 1
+            fi
+            ;;
+        -o|--output)
+            if [[ -n "$2" ]]; then
+                output_format="$2"
+                shift
+            else
+                echo -e "${RED}Error: --output requires a format (short,short-precise,verbose,json,cat).${NC}"
+                exit 1
+            fi
+            ;;
+        -f|--follow)
+            follow_mode="yes"
+            ;;
+        -r|--reverse)
+            reverse_order="yes"
+            ;;
+        -E|--export)
+            if [[ -n "$2" ]]; then
+                export_format="$2"
+                shift
+            else
+                echo -e "${RED}Error: --export requires a format (html,csv,markdown).${NC}"
+                exit 1
+            fi
+            ;;
+        -k|--kernel)
+            kernel_only="yes"
+            ;;
+        -a|--all)
+            show_all="yes"
+            ;;
+        -x|--expand)
+            expand_output="yes"
+            ;;
+        --status)
+            show_status="yes"
+            ;;
+        -m|--multi)
+            if [[ -n "$2" ]]; then
+                multi_services="$2"
+                shift
+            else
+                echo -e "${RED}Error: --multi requires service names.${NC}"
+                exit 1
+            fi
+            ;;
+        --stats)
+            show_stats="yes"
+            ;;
+        --system-stats)
+            system_stats="yes"
+            ;;
+        --attention)
+            attention_areas="yes"
+            ;;
+        --top-issues)
+            top_issues="yes"
+            if [[ -n "$2" && "$2" =~ ^[0-9]+$ ]]; then
+                num_issues="$2"
+                shift
+            fi
+            ;;
+        --health-report)
+            health_report="yes"
+            if [[ -n "$2" && ! "$2" =~ ^- ]]; then
+                output_file="$2"
+                shift
+            fi
+            ;;
+        --trends)
+            trend_analysis="yes"
+            if [[ -n "$2" && "$2" =~ ^[0-9]+$ ]]; then
+                trend_days="$2"
+                shift
+            fi
+            ;;
+        --category)
+            if [[ -n "$2" ]]; then
+                category_filter="$2"
+                shift
+            else
+                echo -e "${RED}Error: --category requires a type (system, security, performance, etc.).${NC}"
+                exit 1
+            fi
+            ;;
+        --setup-monitor)
+            setup_monitoring_service
+            exit $?
+            ;;
+        --disable-monitor)
+            disable_monitoring_service
+            exit $?
+            ;;
+        --configure-notifications)
+            configure_notifications
+            exit $?
+            ;;
+        --bookmark)
+            if [[ -n "$2" ]]; then
+                bookmark_name="$2"
+                shift
+            else
+                echo -e "${RED}Error: --bookmark requires a name.${NC}"
+                exit 1
+            fi
+            ;;
+        --bookmarks)
+            manage_bookmarks "list"
+            exit 0
+            ;;
+        --use)
+            if [[ -n "$2" ]]; then
+                # Use a saved bookmark
+                bookmark_data=$(manage_bookmarks "use" "$2")
+                if [[ $? -eq 0 && -n "$bookmark_data" ]]; then
+                    IFS='|' read -r bookmark_type bookmark_service bookmark_opts <<< "$bookmark_data"
+                    
+                    # Parse the options from the bookmark
+                    read -ra bookmark_opt_array <<< "$bookmark_opts"
+                    
+                    # Process the options
+                    service_pattern="$bookmark_service"
+                    scope="both"
+                    if [[ "$bookmark_type" == "system" ]]; then
+                        scope="system"
+                    elif [[ "$bookmark_type" == "user" ]]; then
+                        scope="user"
+                    elif [[ "$bookmark_type" == "kernel" ]]; then
+                        kernel_only="yes"
+                    elif [[ "$bookmark_type" == "all" ]]; then
+                        show_all="yes"
+                    fi
+                    
+                    # Process options from the bookmark
+                    for ((i=0; i<${#bookmark_opt_array[@]}; i++)); do
+                        opt="${bookmark_opt_array[$i]}"
+                        
+                        case "$opt" in
+                            -n|--lines)
+                                lines="${bookmark_opt_array[$((i+1))]}"
+                                ((i++))
+                                ;;
+                            -f|--follow)
+                                follow_mode="yes"
+                                ;;
+                            -p|--priority)
+                                priority_filter="${bookmark_opt_array[$((i+1))]}"
+                                ((i++))
+                                ;;
+                            -g|--grep)
+                                grep_pattern="${bookmark_opt_array[$((i+1))]}"
+                                ((i++))
+                                ;;
+                            -H|--highlight)
+                                highlight_pattern="${bookmark_opt_array[$((i+1))]}"
+                                ((i++))
+                                ;;
+                            -o|--output)
+                                output_format="${bookmark_opt_array[$((i+1))]}"
+                                ((i++))
+                                ;;
+                            -t|--time)
+                                time_filter="${bookmark_opt_array[$((i+1))]}"
+                                ((i++))
+                                ;;
+                            -T|--until)
+                                until_filter="${bookmark_opt_array[$((i+1))]}"
+                                ((i++))
+                                ;;
+                            -r|--reverse)
+                                reverse_order="yes"
+                                ;;
+                            -x|--expand)
+                                expand_output="yes"
+                                ;;
+                            --status)
+                                show_status="yes"
+                                ;;
+                        esac
+                    done
+                else
+                    exit 1
+                fi
+                shift
+            else
+                echo -e "${RED}Error: --use requires a bookmark name.${NC}"
+                exit 1
+            fi
+            ;;
+        *)
+            # Anything else is treated as a service pattern
+            service_pattern="$1"
+            ;;
+    esac
+    shift
+done
+
+# Quick check for dependencies
+check_dependencies || exit 1
+
+# Execute specific commands based on options
+if [[ -n "$system_stats" ]]; then
+    show_system_stats
+    exit 0
+fi
+
+if [[ -n "$attention_areas" ]]; then
+    show_attention_areas "$time_filter" "$category_filter"
+    exit 0
+fi
+
+if [[ -n "$top_issues" ]]; then
+    show_top_issues "$num_issues" "$time_filter" "$category_filter"
+    exit 0
+fi
+
+if [[ -n "$health_report" ]]; then
+    generate_health_report "$output_file"
+    exit 0
+fi
+
+if [[ -n "$trend_analysis" ]]; then
+    show_trends "$trend_days"
+    exit 0
+fi
+
+# If stats were requested, show them
+if [[ -n "$show_stats" ]]; then
+    # If no service was specified, show stats for all
+    if [[ -z "$service_pattern" && -z "$kernel_only" ]]; then
+        show_log_stats "all" "" "$time_filter" "$until_filter" "$category_filter"
+    elif [[ -n "$kernel_only" ]]; then
+        show_log_stats "kernel" "" "$time_filter" "$until_filter" "$category_filter"
+    else
+        # Search for the service
+        IFS=' ' read -ra found_services <<< "$(search_services "$service_pattern" "$scope")"
+        
+        if [[ ${#found_services[@]} -eq 0 ]]; then
+            echo -e "${RED}No services matching '$service_pattern' found.${NC}"
+            exit 1
+        fi
+        
+        # Use the first match
+        IFS=':' read -ra service_parts <<< "${found_services[0]}"
+        local service_type="${service_parts[0]}"
+        local service_name="${service_parts[1]}"
+        
+        show_log_stats "$service_type" "$service_name" "$time_filter" "$until_filter" "$category_filter"
+    fi
+    exit 0
+fi
+
+# If a bookmark was specified, save the current command
+if [[ -n "$bookmark_name" ]]; then
+    # Determine the service type and name
+    if [[ -n "$kernel_only" ]]; then
+        manage_bookmarks "add" "$bookmark_name" "kernel" "" "$*"
+    elif [[ -n "$show_all" ]]; then
+        manage_bookmarks "add" "$bookmark_name" "all" "" "$*"
+    elif [[ -n "$multi_services" ]]; then
+        manage_bookmarks "add" "$bookmark_name" "multi" "$multi_services" "$*"
+    else
+        # Find the service first
+        IFS=' ' read -ra found_services <<< "$(search_services "$service_pattern" "$scope")"
+        
+        if [[ ${#found_services[@]} -eq 0 ]]; then
+            echo -e "${RED}No services matching '$service_pattern' found. Cannot create bookmark.${NC}"
+            exit 1
+        fi
+        
+        # Use the first match
+        IFS=':' read -ra service_parts <<< "${found_services[0]}"
+        local service_type="${service_parts[0]}"
+        local service_name="${service_parts[1]}"
+        
+        # Save the bookmark
+        manage_bookmarks "add" "$bookmark_name" "$service_type" "$service_name" "$*"
+    fi
+fi
+
+# If a service pattern was provided, do an interactive search
+if [[ -n "$service_pattern" || -n "$kernel_only" || -n "$show_all" || -n "$multi_services" ]]; then
+    interactive_search "$service_pattern" "$scope" "$lines" "$output_file" "$to_clipboard" \
+        "$time_filter" "$until_filter" "$priority_filter" "$grep_pattern" "$highlight_pattern" \
+        "$output_format" "$follow_mode" "$reverse_order" "$export_format" \
+        "$kernel_only" "$show_all" "$expand_output" "$show_status" "$multi_services"
+else
+    # No service pattern provided, but not showing help either
+    echo -e "${YELLOW}No service pattern provided. Use -h or --help for usage information.${NC}"
+    echo -e "${YELLOW}Or try one of these commands:${NC}"
+    echo -e "  ${CYAN}$TOOL_NAME --list${NC}            # List all available services"
+    echo -e "  ${CYAN}$TOOL_NAME --stats${NC}           # Show log statistics"
+    echo -e "  ${CYAN}$TOOL_NAME --system-stats${NC}    # Show system-wide statistics"
+    echo -e "  ${CYAN}$TOOL_NAME --attention${NC}       # Show areas that need attention"
+    echo -e "  ${CYAN}$TOOL_NAME --top-issues${NC}      # Show top system issues"
+    echo -e "  ${CYAN}$TOOL_NAME -a${NC}                # Show logs from all services"
+    echo -e "  ${CYAN}$TOOL_NAME -k${NC}                # Show kernel logs"
+    echo -e "  ${CYAN}$TOOL_NAME --bookmarks${NC}       # Show saved bookmarks"
+    
+    # Suggest some common services
+    echo -e "\n${YELLOW}Common services you might want to check:${NC}"
+    echo -e "  ${CYAN}$TOOL_NAME systemd${NC}           # System daemon logs"
+    echo -e "  ${CYAN}$TOOL_NAME NetworkManager${NC}    # Network manager logs"
+    echo -e "  ${CYAN}$TOOL_NAME sshd${NC}              # SSH daemon logs"
+    echo -e "  ${CYAN}$TOOL_NAME plasma${NC}            # KDE Plasma logs"
+    
+    exit 1
+fi

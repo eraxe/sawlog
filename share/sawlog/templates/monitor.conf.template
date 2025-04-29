@@ -1,0 +1,33 @@
+# sawlog monitor configuration
+# This file configures which logs to monitor and thresholds for alerting
+
+# Enable/disable monitoring
+ENABLE_MONITORING=true
+
+# Monitoring interval in seconds (default: 300 = 5 minutes)
+MONITORING_INTERVAL=300
+
+# Services to monitor (space-separated list)
+# Format: "service_type:service_name"
+# Examples: "system:sshd.service" "user:plasma-plasmashell.service" "kernel:"
+MONITORED_SERVICES="system:systemd.service system:NetworkManager.service kernel:"
+
+# Alert thresholds (number of events per monitoring interval)
+CRITICAL_THRESHOLD=5          # Critical errors threshold
+ERROR_THRESHOLD=20            # Errors threshold
+WARNING_THRESHOLD=50          # Warnings threshold
+
+# Health metrics monitoring
+MONITOR_CPU_USAGE=true        # Monitor CPU usage
+CPU_THRESHOLD=90              # Alert when CPU usage exceeds this percentage
+
+MONITOR_MEMORY_USAGE=true     # Monitor memory usage
+MEMORY_THRESHOLD=85           # Alert when memory usage exceeds this percentage
+
+MONITOR_DISK_USAGE=true       # Monitor disk usage
+DISK_THRESHOLD=90             # Alert when disk usage exceeds this percentage
+
+MONITOR_FAILED_SERVICES=true  # Monitor failed systemd services
+
+# Retention settings
+STATS_RETENTION_DAYS=30       # How many days to keep statistics data
