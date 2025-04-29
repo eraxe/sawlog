@@ -1,6 +1,6 @@
 # SawLog - Advanced System Log Explorer
 
-![Sawlog Banner](./assets/banner.svg)
+![Sawlog Banner](./assets/sawlog.svg)
 
 ## The Ultimate System Log Analysis Tool
 
